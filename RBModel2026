@@ -41,7 +41,7 @@ def compute_gradients(X, y_pred, y_actual):
 w = 1
 b = 0
 learning_rate = 0.01 # Model is still converging after 10000 epochs, so learning rate was increased from 0.0001 to 0.01
-epochs = 10000 # The loss is still dropping after 1000 epochs, so it was raised to 10000
+epochs = 2000 # The loss is still dropping after 1000 epochs, so it was raised to 10000
 
 for i in range(epochs):
     y_pred = predict_fantasy_points(X_train, w, b)
@@ -67,3 +67,66 @@ model = LinearRegression()
 model.fit(X_train.reshape(-1, 1), y_train)
 print("sklearn w:", model.coef_)
 print("sklearn b:", model.intercept_)
+
+candidates = ['offense_pct', 'targets', 'rush_attempts', 'receptions', 'yards_after_contact', 'touches']
+rb_full = df[df['position'] == 'RB'][candidates + ['fantasy_points_ppr']].dropna()
+
+correlations = rb_full.corr()['fantasy_points_ppr'].sort_values(ascending=False)
+print(correlations)
+
+correlations_matrix = rb_full.corr()
+print('\n',correlations_matrix)
+
+# Touches has colinearity with rush_attempts.
+# Offense_pct has a strong relationship with fantasy_points_ppr, so it will be used as a second feature
+rb_model2 = df[df['position'] == 'RB'][['offense_pct', 'touches', 'fantasy_points_ppr']].dropna()
+touches = rb_model2['touches'].values
+offense_pct = rb_model2['offense_pct'].values
+y = rb_model2['fantasy_points_ppr'].values
+
+touchesNormalized = (touches - np.mean(touches)) / np.std(touches)
+offense_pctNormalized = (offense_pct - np.mean(offense_pct)) / np.std(offense_pct)
+
+X = np.column_stack([touchesNormalized, offense_pctNormalized])
+print('\n',X.shape)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+def predict_points_multi(X, w, b):
+    y_pred = X @ w + b
+    return y_pred
+
+def compute_multi_gradients(X, y_pred, y_actual):
+    n = len(y_actual)
+    gradient_w = (2/n) * (X.T @ (y_pred - y_actual))
+    gradient_b = np.mean(2 * (y_pred - y_actual))
+    return gradient_w, gradient_b
+
+weights = np.array([1.0, 1.0])
+
+learning_rate = 0.01
+epochs = 3000
+for i in range(epochs):
+    y_pred = predict_points_multi(X_train, weights, b)
+    mse = mean_squared_error(y_train, y_pred)
+    gradient_w, gradient_b = compute_multi_gradients(X_train, y_pred, y_train)
+
+    weights -= learning_rate * gradient_w
+    b -= learning_rate * gradient_b
+    
+    if i % 100 == 0:
+        print(f"Epoch {i}: MSE = {mse}, w = {weights}, b = {b}")
+
+y_pred_train = predict_points_multi(X_train, weights, b)
+mse_train = mean_squared_error(y_train, y_pred_train)
+
+y_pred_test = predict_points_multi(X_test, weights, b)
+mse_test = mean_squared_error(y_test, y_pred_test)
+
+print("Train MSE:", mse_train, "Train RMSE:", np.sqrt(mse_train))
+print("Test MSE:", mse_test, "Test RMSE:", np.sqrt(mse_test))
+
+model2 = LinearRegression()
+model2.fit(X_train, y_train)
+print("sklearn weights:", model2.coef_)
+print("sklearn b:", model2.intercept_)
